@@ -1,0 +1,18 @@
+Creating test files
+
+- old binary cpio archives
+
+$ echo 'test.sgi' | cpio -o > test-old-bin.cpio
+
+- old portable format
+
+$ echo 'test.sgi' | cpio -o --format=odc > test-old.cpio
+
+- new portable format
+
+$ echo 'test.sgi' | cpio -o --format=newc > test-new.cpio
+
+- new portable format with checksum
+
+$ echo 'test.sgi' | cpio -o --format=crc > test-crc.cpio
+
