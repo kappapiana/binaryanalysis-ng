@@ -1,7 +1,7 @@
 # binaryanalysis-ng
 Binary Analysis Next Generation (BANG)
 
-BANG is a framework for unpacking files (like firmware) recursively and running checks on the unpacked files. Its intended use is to able to find out the provenance of the unpacked files and classify/label files, making them available for further analysis.
+BANG is a framework for unpacking files (like firmware) recursively and running checks on the unpacked files. Its intended use is to be able to find out the provenance of the unpacked files and classify/label files, making them available for further analysis.
 
 ## Requirements:
 
@@ -19,6 +19,10 @@ BANG is a framework for unpacking files (like firmware) recursively and running 
 * psycopg2 (possibly named python3-psycopg2)
 * python-snappy (possibly named python3-snappy)
 * python-tlsh (possibly named python3-tlsh)
+* tinycss2 (possibly named python3-tinycss2)
+* dockerfile-parse (possibly named python3-dockerfile-parse)
+* openssl
+* libxml2 (for xmllint)
 
 ## Invocation
 
@@ -33,3 +37,6 @@ GNU Affero General Public License, version 3 (AGPL-3.0)
 The recommended coding style is described in PEP 8:
 
 https://www.python.org/dev/peps/pep-0008/
+
+It is recommended to run PEP 8 verification tools, for example
+python3-pep8 (on Fedora).
