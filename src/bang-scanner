@@ -44,6 +44,7 @@ import json
 import copy
 import subprocess
 import inspect
+import collections
 
 # import module for database
 import psycopg2
@@ -82,39 +83,42 @@ tlshlabelsignore = set(['compressed', 'graphics', 'audio',
 #
 # * scanfilequeue :: a queue where files to scan will be fetched from
 # * resultqueue :: a queue where results will be written to
-# * maxsearchbytes :: an integer that defines the maximum amount of bytes
-#   that are read to be searched for magic signatures
-# * unpackdirectory :: the absolute path of the top level directory in
-#   which files will be unpacked
 # * processlock :: a lock object that guards access to shared objects
 # * checksumdict :: a shared dictionary to store hashes of files so
 #   unnecessary scans of duplicate files can be prevented.
+# * unpackdirectory :: the absolute path of the top level directory in
+#   which files will be unpacked
+# * resultsdirectory :: the absolute path of the directory where results
+#   will be written to
 # * temporary directory :: the absolute path of a directory in which
 #   temporary files will be written
 # * dbconn :: a PostgreSQL database connection
 # * dbcursor :: a PostgreSQL database cursor
+# * bangfilefunctions :: a list of functions for individual files
+# * scanenvironment :: a dict that describes the environment in
+#   which the scans run
 #
 # Each file will be in the scan queue and have the following data
 # associated with it:
 #
-# * file name (absolutepath)
-# * set of labels (set by parent, either empty or containing hints from
-#   unpacking)
+# * file name :: absolute path to the file to be scanned
+# * set of labels :: either empty or containing hints from unpacking
+# * parent :: name of parent file)
+# * extradata :: empty, reserved for future use
 #
 # For every file a set of labels describing the file (such as 'binary' or
 # 'graphics') will be stored. These labels can be used to feed extra
 # information to the unpacking process, such as preventing scans from
 # running.
 def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
-                maxsearchbytes, unpackdirectory, resultsdirectory,
-                temporarydirectory, dbconn, dbcursor, bangfilefunctions,
-                scanenvironment):
+                unpackdirectory, resultsdirectory, temporarydirectory,
+                dbconn, dbcursor, bangfilefunctions, scanenvironment):
     lenunpackdirectory = len(str(unpackdirectory)) + 1
     synthesizedminimum = 10
 
     while True:
         # grab a new file from the scanning queue
-        (checkfile, labels, parent, extradata) = scanfilequeue.get()
+        (checkfile, labels, parent, extradata) = scanfilequeue.get(timeout=86400)
 
         # store the results of the file
         # At minimum store:
@@ -194,8 +198,10 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
         scanfile.seek(0)
         readsize = 10000000
         hashingdata = scanfile.read(readsize)
+        bytecounter = collections.Counter()
 
         while hashingdata != b'':
+            bytecounter.update(hashingdata)
             for h in hashes:
                 hashes[h].update(hashingdata)
             if filesize >= 256:
@@ -261,7 +267,8 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
         #    several other Android or Google formats (Chrome PAK, etc.)
         #
         # 2. blobs, searching for known magic headers and carving them
-        #    from blobs, or regular files.
+        #    from blobs, or regular files. The majority of files will
+        #    likely be processed here.
         #
         # 3. text only files, where it is not immediately clear what
         #    is inside and where the file possibly first has to be
@@ -381,7 +388,7 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
             # keep track of where in the file the starting
             # point for scanning for signatures is
             offsetinfile = scanfile.tell()
-            scanbytes = scanfile.read(maxsearchbytes)
+            scanbytes = scanfile.read(scanenvironment['maxbytes'])
 
             # check if any of the characters read is a
             # non-ASCII character. If so, it is not a text file.
@@ -407,6 +414,8 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
                             # false positives for the built in unpack
                             # functions in BANG, as function calls are
                             # expensive so prevent them as much as possible.
+                            # For big files this can easily save hundreds of
+                            # thousands of function calls.
                             #
                             # Included here are checks for:
                             #
@@ -417,6 +426,7 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
                             # * SGI images
                             # * ICO
                             # * PNG
+                            # * MNG
                             # * TrueType and OpenType fonts
                             # * terminfo
                             if s in ['lzma_var1', 'lzma_var2', 'lzma_var3']:
@@ -584,15 +594,17 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
                                 if namessectionsize < 2 or namessectionsize > 128:
                                     continue
 
-                            # default
+                            # default: store a tuple (offset, signature name)
                             if s in bangsignatures.signaturesoffset:
                                 candidateoffsetsfound.add((offset + offsetinfile - bangsignatures.signaturesoffset[s], s))
                             else:
                                 candidateoffsetsfound.add((offset + offsetinfile, s))
 
                 # For each of the found candidates see if any
-                # data can be unpacked.
+                # data can be unpacked. Process these in the order
+                # in which the signatures were found in the file.
                 for s in (sorted(candidateoffsetsfound)):
+                    # skip offsets which are not useful to look at
                     if s[0] < lastunpackedoffset:
                         continue
                     # first see if there actually is a method to unpack
@@ -617,7 +629,7 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
 
                     # run the scan for the offset that was found
                     # First log which identifier was found and
-                    # at which offset.
+                    # at which offset for possible later analysis.
                     logging.debug("TRYING %s %s at offset: %d" % (checkfile, s[1], s[0]))
 
                     # The result of the scan is a dictionary containing:
@@ -642,7 +654,7 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
 
                     if not unpackresult['status']:
                         # No data could be unpacked for some reason,
-                        # so check the status first
+                        # so log the status and error message
                         logging.debug("FAIL %s %s at offset: %d: %s" % (checkfile, s[1], s[0], unpackresult['error']['reason']))
 
                         # unpacking error contains:
@@ -675,6 +687,9 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
                                 fullfilename = os.path.join(direntries[0], filename)
                                 if not os.path.islink(fullfilename):
                                     os.chmod(fullfilename, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+
+                        # finally remove the unpacking directory,
+                        # and continue with the next candidate offset
                         shutil.rmtree(dataunpackdirectory)
                         continue
 
@@ -743,7 +758,7 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
                     scanfile.seek(-maxsignaturesoffset, 1)
                 offsetinfile = scanfile.tell()
 
-                scanbytes = scanfile.read(maxsearchbytes)
+                scanbytes = scanfile.read(scanenvironemtn['maxbytes'])
 
                 if istext:
                     if len(list(filter(lambda x: chr(x) not in string.printable, scanbytes))) != 0:
@@ -910,7 +925,15 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
             # * hashes (dict 'hashresults')
 
             for b in bangfilefunctions:
-                res = b[1](checkfile, hashresults, dbconn, dbcursor, scanenvironment)
+                runscan = True
+                ignorelist = set(b[1])
+                filefunc = b[0]
+                for label in labels:
+                    if label in ignorelist:
+                        runscan = False
+                        break
+                if runscan:
+                    res = filefunc[1](checkfile, hashresults, dbconn, dbcursor, scanenvironment)
 
             # write a pickle with output data
             # The pickle contains:
@@ -919,6 +942,8 @@ def processfile(scanfilequeue, resultqueue, processlock, checksumdict,
             resultout = {}
             for i in hashresults:
                 resultout[i] = hashresults[i]
+
+            resultout['bytecount'] = list(bytecounter.items())
 
             resultout['labels'] = labels
             if extradata != {}:
@@ -1156,11 +1181,6 @@ def main(argv):
                         level=logging.DEBUG, format='%(asctime)s %(message)s')
     logging.info("Started scanning %s" % args.checkfile)
 
-    # first determine how many bytes should be scanned for known
-    # signatures using a sliding window. This should not be set too
-    # large for performance reasons.
-    readsize = 2000000
-
     processmanager = multiprocessing.Manager()
 
     # first create two queues: one for scanning files, the other one
@@ -1212,6 +1232,13 @@ def main(argv):
     # create a scan environment, initially an empty dictionary
     scanenvironment = {}
 
+    # first determine how many bytes should be scanned for known
+    # signatures using a sliding window. This should not be set too
+    # large for performance reasons.
+    maxbytes = 2000000
+
+    scanenvironment['maxbytes'] = maxbytes
+
     # grab all the functions from the "bangfilescans" file
     bangfunctions = inspect.getmembers(bangfilescans, inspect.isfunction)
 
@@ -1220,16 +1247,22 @@ def main(argv):
     bangwholecontextfunctions = []
 
     for f in bangfunctions:
+        context = None
+        ignorelist = []
         if f[1].__doc__ is None:
-            bangfilefunctions.append(f)
+            bangfilefunctions.append((f, []))
         else:
             for l in f[1].__doc__.split('\n'):
                 if l.strip().startswith('Context:'):
                     context = l.split(':', 1)[1].strip()
-                    if context == 'file':
-                        bangfilefunctions.append(f)
-                    elif context == 'whole':
-                        bangwholecontextfunctions.append(f)
+                elif l.strip().startswith('Ignore:'):
+                    ignoretypes = l.strip().split(',')
+                    for i in ignoretypes:
+                        ignorelist.append(i.strip())
+            if context == 'file':
+                bangfilefunctions.append((f, ignorelist))
+            elif context == 'whole':
+                bangwholecontextfunctions.append((f, ignorelist))
 
     # create processes for unpacking archives
     for i in range(0, bangthreads):
@@ -1239,7 +1272,7 @@ def main(argv):
                                               resultqueue,
                                               processlock,
                                               checksumdict,
-                                              readsize, unpackdirectory,
+                                              unpackdirectory,
                                               resultsdirectory,
                                               temporarydirectory,
                                               None, None,
@@ -1251,7 +1284,7 @@ def main(argv):
                                               resultqueue,
                                               processlock,
                                               checksumdict,
-                                              readsize, unpackdirectory,
+                                              unpackdirectory,
                                               resultsdirectory,
                                               temporarydirectory,
                                               bangdbconns[i][0],

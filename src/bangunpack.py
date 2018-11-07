@@ -2071,7 +2071,7 @@ def unpackSquashfs(filename, offset, unpackdir, temporarydirectory):
 
     if offset == 0 and unpackedsize == filesize:
         labels.append('squashfs')
-        labels.append('file system')
+        labels.append('filesystem')
 
     return {'status': True, 'length': unpackedsize, 'labels': labels,
             'filesandlabels': unpackedfilesandlabels}
@@ -3215,6 +3215,7 @@ def unpackZip(filename, offset, unpackdir, temporarydirectory):
                 labels.append('zip')
                 if androidsigning:
                     labels.append('apk')
+                    labels.append('android')
             if carved:
                 os.unlink(temporaryfile[1])
             checkfile.close()
@@ -5145,7 +5146,7 @@ def unpackISO9660(filename, offset, unpackdir, temporarydirectory):
     unpackedsize = volume_space_size * logical_size
 
     if offset == 0 and unpackedsize == filesize:
-        labels += ['iso9660', 'file system']
+        labels += ['iso9660', 'filesystem']
     return {'status': True, 'length': unpackedsize, 'labels': labels,
             'filesandlabels': unpackedfilesandlabels}
 
@@ -6933,7 +6934,7 @@ def unpackAndroidSparseData(filename, offset, unpackdir, temporarydirectory):
 
     unpackedsize = filesize
 
-    labels += ['androidsparsedata']
+    labels += ['androidsparsedata', 'android']
     unpackedfilesandlabels.append((outputfilename, []))
     return {'status': True, 'length': unpackedsize, 'labels': labels,
             'filesandlabels': unpackedfilesandlabels}
@@ -7048,7 +7049,8 @@ def unpackAndroidBackup(filename, offset, unpackdir, temporarydirectory):
         return {'status': False, 'error': unpackingerror}
 
     # add the labels and pass on the results from the tar unpacking
-    labels.append('android backup')
+    labels.append('androidbackup')
+    labels.append('android')
     return {'status': True, 'length': unpackedsize, 'labels': labels,
             'filesandlabels': tarresult['filesandlabels']}
 
@@ -9051,7 +9053,7 @@ def unpackJFFS2(filename, offset, unpackdir, temporarydirectory):
 
     if offset == 0 and filesize == unpackedsize:
         labels.append('jffs2')
-        labels.append('file system')
+        labels.append('filesystem')
     return {'status': True, 'length': unpackedsize, 'labels': labels,
             'filesandlabels': unpackedfilesandlabels}
 
@@ -11419,7 +11421,7 @@ def unpackExt2(filename, offset, unpackdir, temporarydirectory):
 
     if offset == 0 and filesize == unpackedsize:
         labels.append('ext2')
-        labels.append('file system')
+        labels.append('filesystem')
 
     return {'status': True, 'length': unpackedsize, 'labels': labels,
             'filesandlabels': unpackedfilesandlabels}
@@ -11930,9 +11932,8 @@ def unpackRPM(filename, offset, unpackdir, temporarydirectory):
         labels.append('rpm')
         if issourcerpm:
             labels.append('srpm')
-            labels.append('source rpm')
         if payload == b'drpm':
-            labels.append('delta rpm')
+            labels.append('drpm')
 
     return {'status': True, 'length': unpackedsize, 'labels': labels,
             'filesandlabels': unpackedfilesandlabels}
@@ -12517,6 +12518,7 @@ def unpackAndroidSparse(filename, offset, unpackdir, temporarydirectory):
     checkfile.close()
     if offset == 0 and filesize == unpackedsize:
         labels.append('androidsparse')
+        labels.append('android')
     unpackedfilesandlabels.append((outputfilename, []))
     unpackingerror = {'offset': offset+unpackedsize, 'fatal': False,
                       'reason': 'Not a valid Android sparse file'}
@@ -12658,7 +12660,7 @@ def unpackVMDK(filename, offset, unpackdir, temporarydirectory):
                 return {'status': False, 'error': unpackingerror}
 
             labels.append('vmdk')
-            labels.append('file system')
+            labels.append('filesystem')
             unpackedfilesandlabels.append((outputfilename, []))
             return {'status': True, 'length': unpackedsize, 'labels': labels,
                     'filesandlabels': unpackedfilesandlabels}
@@ -12726,7 +12728,7 @@ def unpackQcow2(filename, offset, unpackdir, temporarydirectory):
 
             labels.append('qemu')
             labels.append('qcow2')
-            labels.append('file system')
+            labels.append('filesystem')
             unpackedfilesandlabels.append((outputfilename, []))
             return {'status': True, 'length': unpackedsize, 'labels': labels,
                     'filesandlabels': unpackedfilesandlabels}
@@ -12936,7 +12938,7 @@ def unpackVDI(filename, offset, unpackdir, temporarydirectory):
 
             labels.append('virtualbox')
             labels.append('vdi')
-            labels.append('file system')
+            labels.append('filesystem')
             unpackedfilesandlabels.append((outputfilename, []))
             return {'status': True, 'length': unpackedsize, 'labels': labels,
                     'filesandlabels': unpackedfilesandlabels}
@@ -15839,7 +15841,7 @@ def unpackAndroidResource(filename, offset, unpackdir, temporarydirectory):
         checkfile.close()
         labels.append('binary')
         labels.append('resource')
-        labels.append('android resource')
+        labels.append('android')
         return {'status': True, 'length': unpackedsize, 'labels': labels,
                 'filesandlabels': unpackedfilesandlabels}
 

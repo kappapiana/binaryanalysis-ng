@@ -32,8 +32,10 @@
 # * scan environment (a dict)
 
 import pathlib
+import mimetypes
+import os
 
-# import BANG signatures
+# import own code
 import bangsignatures
 
 
@@ -89,14 +91,100 @@ def knownfileNSRL(filename, hashresults, dbconn, dbcursor, scanenvironment):
     return results
 
 
+# https://www.iana.org/assignments/media-types/media-types.xhtml
 def guessExtension(filename, hashresults, dbconn, dbcursor, scanenvironment):
     '''Search the extension of the file in a list of known extensions.
+       and return the mime type
        Context: file
     '''
-    # results is (for now) a list
-    results = []
-    if filename.suffix == '':
-        return results
-    if filename.suffix.lower() in bangsignatures.extensiontofiletype:
-        return bangsignatures.extensiontofiletype[filename.suffix.lower()]
-    return results
+    returnres = {}
+
+    # results is a dictionary
+    mimeres = mimetypes.guess_type(filename.name)[0]
+    if mimeres is not None:
+        returnres['key'] = 'mimetype'
+        returnres['type'] = 'informational'
+        returnres['value'] = mimeres[0]
+    return returnres
+
+
+# search files for license references.
+def extractLicenseIdentifier(filename, hashresults, dbconn, dbcursor, scanenvironment):
+    '''Search the presence of license identifiers in a file
+       (URLs and other references)
+       Context: file
+       Ignore: archive, audio, audio, encrypted, filesystem, graphics, video
+    '''
+
+    # results is a dictionary
+    returnres = {}
+    licenseresults = {}
+
+    seekbuf = bytearray(1000000)
+    filesize = filename.stat().st_size
+
+    # open the file in binary mode
+    checkfile = open(filename, 'rb')
+    checkfile.seek(0)
+    while True:
+        bytesread = checkfile.readinto(seekbuf)
+        for r in bangsignatures.licensereferences:
+            for licenseref in bangsignatures.licensereferences[r]:
+                licenserefbytes = bytes(licenseref, 'utf-8')
+                if licenserefbytes in seekbuf:
+                    if r not in licenseresults:
+                        licenseresults[r] = []
+                    licenseresults[r].append(licenseref)
+        if checkfile.tell() == filesize:
+            break
+        checkfile.seek(-50, os.SEEK_CUR)
+    checkfile.close()
+
+    if licenseresults != {}:
+        returnres['key'] = 'license references'
+        returnres['type'] = 'informational'
+        returnres['value'] = licenseresults
+
+    return returnres
+
+
+# search files for references to forges
+# https://en.wikipedia.org/wiki/Forge_(software)
+def extractForgeIdentifiers(filename, hashresults, dbconn, dbcursor, scanenvironment):
+    '''Search the presence of references to forges and other
+       collaborative software development sites in a file
+       (URLs and other references)
+       Context: file
+       Ignore: archive, audio, audio, encrypted, filesystem, graphics, video
+    '''
+
+    # results is a dictionary
+    returnres = {}
+    forgeresults = {}
+
+    seekbuf = bytearray(1000000)
+    filesize = filename.stat().st_size
+
+    # open the file in binary mode
+    checkfile = open(filename, 'rb')
+    checkfile.seek(0)
+    while True:
+        bytesread = checkfile.readinto(seekbuf)
+        for r in bangsignatures.forgereferences:
+            for forgeref in bangsignatures.forgereferences[r]:
+                forgerefbytes = bytes(forgeref, 'utf-8')
+                if forgerefbytes in seekbuf:
+                    if r not in forgeresults:
+                        forgeresults[r] = []
+                    forgeresults[r].append(forgeref)
+        if checkfile.tell() == filesize:
+            break
+        checkfile.seek(-50, os.SEEK_CUR)
+    checkfile.close()
+
+    if forgeresults != {}:
+        returnres['key'] = 'forge references'
+        returnres['type'] = 'informational'
+        returnres['value'] = forgeresults
+
+    return returnres
